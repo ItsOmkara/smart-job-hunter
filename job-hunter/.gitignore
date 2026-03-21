@@ -31,3 +31,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# .gitignore mein add karo
+echo "job-hunter/src/main/resources/application.properties" >> .
+
