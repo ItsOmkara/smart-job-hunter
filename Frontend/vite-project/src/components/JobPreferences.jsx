@@ -1,27 +1,103 @@
 import { useState, useEffect } from 'react'
-import { Search, MapPin, Briefcase, Mail, Lock, Code, Loader2, SlidersHorizontal } from 'lucide-react'
+import { Search, MapPin, Briefcase, Code, Loader2, SlidersHorizontal, Plug, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
 
-export default function JobPreferences({ onStartApplying, isApplying, autoFilledSkills }) {
+const API_BASE = 'http://localhost:8080'
+
+export default function JobPreferences({ onStartApplying, isApplying, autoFilledSkills, isConnected, onConnectionChange }) {
     const [preferences, setPreferences] = useState({
         role: '',
         location: '',
         experience: 'entry',
-        skills: '',
-        naukriEmail: '',
-        naukriPassword: ''
+        skills: ''
     })
     const [matchThreshold, setMatchThreshold] = useState(() => {
         const stored = localStorage.getItem('matchThreshold')
         return stored ? Number(stored) : 60
     })
     const [error, setError] = useState('')
+    const [connectionStatus, setConnectionStatus] = useState('checking')
+    const [sessionSavedAt, setSessionSavedAt] = useState(null)
+    const [streamUrl, setStreamUrl] = useState('')
 
-    // Auto-fill skills from resume parsing
+    useEffect(() => {
+        checkSessionStatus()
+    }, [])
+
+    useEffect(() => {
+        let interval;
+        if (connectionStatus === 'connecting') {
+            interval = setInterval(checkSessionStatus, 5000)
+        }
+        return () => clearInterval(interval)
+    }, [connectionStatus])
+
     useEffect(() => {
         if (autoFilledSkills && autoFilledSkills.length > 0 && !preferences.skills) {
             setPreferences(prev => ({ ...prev, skills: autoFilledSkills.join(', ') }))
         }
     }, [autoFilledSkills])
+
+    const checkSessionStatus = async () => {
+        try {
+            const response = await fetch(`${API_BASE}/api/session/status/naukri`)
+            const data = await response.json()
+            if (data.connected) {
+                setConnectionStatus('connected')
+                setSessionSavedAt(data.savedAt)
+                setStreamUrl('')
+                onConnectionChange?.(true)
+            } else if (connectionStatus !== 'connecting') {
+                setConnectionStatus('disconnected')
+                onConnectionChange?.(false)
+            }
+        } catch (err) {
+            console.error('Failed to check session status:', err)
+            if (connectionStatus !== 'connecting') {
+                setConnectionStatus('disconnected')
+                onConnectionChange?.(false)
+            }
+        }
+    }
+
+    const handleConnectNaukri = async () => {
+        setConnectionStatus('connecting')
+        setError('')
+        setStreamUrl('')
+        try {
+            const response = await fetch(`${API_BASE}/api/session/connect/naukri`, { method: 'POST' })
+            const data = await response.json()
+            if (data.status === 'connecting') {
+                setStreamUrl(data.streamUrl)
+                // Window might not open automatically due to popup blockers, so we provide a link
+                if (data.streamUrl) {
+                    window.open(data.streamUrl, '_blank')
+                }
+            } else {
+                setConnectionStatus('disconnected')
+                // Build contextual error message based on errorType
+                const errorType = data.errorType || 'UNKNOWN'
+                let errorMsg = data.message || 'Failed to connect. Please try again.'
+                if (errorType === 'CREDITS') {
+                    errorMsg = '⚠️ No TinyFish credits remaining. Please top up at agent.tinyfish.ai and try again.'
+                } else if (errorType === 'AUTH') {
+                    errorMsg = '🔑 API key invalid or expired. Update the key in application.properties and restart the backend.'
+                } else if (errorType === 'RATE_LIMIT') {
+                    errorMsg = '⏳ Rate limited by TinyFish. Please wait 30 seconds and try again.'
+                } else if (errorType === 'TIMEOUT') {
+                    errorMsg = '⏱️ TinyFish did not respond. Check your internet connection and TinyFish service status.'
+                } else if (errorType === 'SERVER_ERROR') {
+                    errorMsg = '🔧 TinyFish service is down. Please try again later.'
+                }
+                setError(errorMsg)
+                onConnectionChange?.(false)
+            }
+        } catch (err) {
+            console.error('Connect failed:', err)
+            setConnectionStatus('disconnected')
+            setError('❌ Connection failed. Make sure the backend is running on localhost:8080.')
+            onConnectionChange?.(false)
+        }
+    }
 
     const handleChange = (e) => {
         const { name, value } = e.target
@@ -31,41 +107,105 @@ export default function JobPreferences({ onStartApplying, isApplying, autoFilled
 
     const handleSubmit = async (e) => {
         e.preventDefault()
-        if (!preferences.role || !preferences.location || !preferences.naukriEmail || !preferences.naukriPassword) {
+        if (!preferences.role || !preferences.location) {
             setError('Please fill in all required fields.')
             return
         }
-
+        if (connectionStatus !== 'connected') {
+            setError('Please connect Naukri first before applying.')
+            return
+        }
         setError('')
         try {
             const dailyLimit = localStorage.getItem('dailyLimit') || 5
             await onStartApplying({ ...preferences, matchThreshold, dailyLimit: Number(dailyLimit) })
         } catch (err) {
             setError(err.message || 'Something went wrong. Please try again.')
+            checkSessionStatus()
         }
     }
 
+    const getConnectionUI = () => {
+        switch (connectionStatus) {
+            case 'checking':
+                return { icon: <Loader2 size={18} className="animate-spin" />, text: 'Checking session...', color: 'var(--text-muted)', bgColor: 'rgba(148, 163, 184, 0.08)', borderColor: 'rgba(148, 163, 184, 0.15)' }
+            case 'connecting':
+                return {
+                    icon: <Loader2 size={18} className="animate-spin" />,
+                    text: 'Connecting... Please login in the browser.',
+                    color: 'var(--primary-cyan)',
+                    bgColor: 'rgba(6, 182, 212, 0.08)',
+                    borderColor: 'rgba(6, 182, 212, 0.2)'
+                }
+            case 'connected':
+                return { icon: <CheckCircle size={18} />, text: 'Connected \u2705 Session active', subtext: sessionSavedAt ? `Since ${new Date(sessionSavedAt).toLocaleString('en-IN')}` : '', color: 'var(--success)', bgColor: 'rgba(16, 185, 129, 0.08)', borderColor: 'rgba(16, 185, 129, 0.2)' }
+            case 'expired':
+                return { icon: <RefreshCw size={18} />, text: 'Session expired \uD83D\uDD04 Reconnect', color: 'var(--warning)', bgColor: 'rgba(245, 158, 11, 0.08)', borderColor: 'rgba(245, 158, 11, 0.2)' }
+            default:
+                return { icon: <XCircle size={18} />, text: 'Not connected \u274C', color: 'var(--danger)', bgColor: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.15)' }
+        }
+    }
+
+    const connUI = getConnectionUI()
+
     return (
         <div className="glass-panel" style={{ padding: '24px', animation: 'fadeIn 0.5s ease-out' }}>
-            <h3 style={{ marginBottom: '20px' }}>2. Job Preferences & Login</h3>
+            <h3 style={{ marginBottom: '20px' }}>2. Job Preferences & Connect</h3>
 
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* Naukri Connection Section */}
+                <div style={{ padding: '16px', borderRadius: '12px', background: connUI.bgColor, border: `1px solid ${connUI.borderColor}`, transition: 'all 0.3s ease' }}>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--primary-cyan)', marginBottom: '12px', fontWeight: 500 }}>
+                        {'🔗'} Naukri.com Session
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', color: connUI.color, fontSize: '0.9rem', fontWeight: 500 }}>
+                        {connUI.icon}
+                        <span>{connUI.text}</span>
+                    </div>
+                    {connUI.subtext && (
+                        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '10px', marginLeft: '26px' }}>{connUI.subtext}</p>
+                    )}
+
+                    {(connectionStatus === 'disconnected' || connectionStatus === 'expired') && (
+                        <button type="button" onClick={handleConnectNaukri} className="btn-connect" disabled={isApplying}>
+                            <Plug size={16} />
+                            {connectionStatus === 'expired' ? 'Reconnect Naukri' : 'Connect Naukri'}
+                        </button>
+                    )}
+
+                    {connectionStatus === 'connected' && (
+                        <button type="button" onClick={handleConnectNaukri} disabled={isApplying}
+                            style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-muted)', padding: '6px 14px', borderRadius: '8px', fontSize: '0.8rem', cursor: 'pointer', fontFamily: 'var(--font-main)', transition: 'all 0.2s ease' }}>
+                            <RefreshCw size={12} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                            Refresh Session
+                        </button>
+                    )}
+
+                    {connectionStatus === 'connecting' && (
+                        <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(6, 182, 212, 0.05)', border: '1px solid rgba(6, 182, 212, 0.1)', fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                            <p>{'🖥️'} A browser window should have opened automatically.</p>
+                            {streamUrl && (
+                                <a href={streamUrl} target="_blank" rel="noopener noreferrer"
+                                    style={{ display: 'inline-block', marginTop: '8px', color: 'var(--primary-cyan)', textDecoration: 'underline', fontWeight: 600 }}>
+                                    Click here to open Browser and Login
+                                </a>
+                            )}
+                            <p style={{ marginTop: '8px' }}>1. Enter your Naukri credentials</p>
+                            <p>2. Complete OTP/CAPTCHA if prompted</p>
+                            <p>3. Wait until you see your dashboard</p>
+                            <p style={{ marginTop: '6px', color: 'var(--primary-cyan)', fontWeight: 500 }}>
+                                {'⏱'} Waiting for login capture...
+                            </p>
+                        </div>
+                    )}
+                </div>
+
                 {/* Role */}
                 <div>
                     <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Target Role *</label>
                     <div style={{ position: 'relative' }}>
                         <Search size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-                        <input
-                            type="text"
-                            name="role"
-                            className="input-field"
-                            placeholder="e.g. Full Stack Developer"
-                            value={preferences.role}
-                            onChange={handleChange}
-                            style={{ paddingLeft: '40px' }}
-                            disabled={isApplying}
-                            required
-                        />
+                        <input type="text" name="role" className="input-field" placeholder="e.g. Full Stack Developer" value={preferences.role} onChange={handleChange} style={{ paddingLeft: '40px' }} disabled={isApplying} required />
                     </div>
                 </div>
 
@@ -75,32 +215,14 @@ export default function JobPreferences({ onStartApplying, isApplying, autoFilled
                         <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Location *</label>
                         <div style={{ position: 'relative' }}>
                             <MapPin size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-                            <input
-                                type="text"
-                                name="location"
-                                className="input-field"
-                                placeholder="e.g. Remote, India"
-                                value={preferences.location}
-                                onChange={handleChange}
-                                style={{ paddingLeft: '40px' }}
-                                disabled={isApplying}
-                                required
-                            />
+                            <input type="text" name="location" className="input-field" placeholder="e.g. Remote, India" value={preferences.location} onChange={handleChange} style={{ paddingLeft: '40px' }} disabled={isApplying} required />
                         </div>
                     </div>
-
                     <div>
                         <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Experience</label>
                         <div style={{ position: 'relative' }}>
                             <Briefcase size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-                            <select
-                                name="experience"
-                                className="input-field"
-                                value={preferences.experience}
-                                onChange={handleChange}
-                                style={{ paddingLeft: '40px', appearance: 'none' }}
-                                disabled={isApplying}
-                            >
+                            <select name="experience" className="input-field" value={preferences.experience} onChange={handleChange} style={{ paddingLeft: '40px', appearance: 'none' }} disabled={isApplying}>
                                 <option value="entry">Entry Level (0-2 Yrs)</option>
                                 <option value="mid">Mid Level (3-5 Yrs)</option>
                                 <option value="senior">Senior (5+ Yrs)</option>
@@ -114,159 +236,53 @@ export default function JobPreferences({ onStartApplying, isApplying, autoFilled
                     <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Edit / Override Skills (Optional)</label>
                     <div style={{ position: 'relative' }}>
                         <Code size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-                        <input
-                            type="text"
-                            name="skills"
-                            className="input-field"
-                            placeholder="e.g. React, Java, Spring Boot"
-                            value={preferences.skills}
-                            onChange={handleChange}
-                            style={{ paddingLeft: '40px' }}
-                            disabled={isApplying}
-                        />
+                        <input type="text" name="skills" className="input-field" placeholder="e.g. React, Java, Spring Boot" value={preferences.skills} onChange={handleChange} style={{ paddingLeft: '40px' }} disabled={isApplying} />
                     </div>
                     {autoFilledSkills && autoFilledSkills.length > 0 && (
                         <p style={{ fontSize: '0.78rem', color: 'var(--primary-cyan)', marginTop: '6px', opacity: 0.8 }}>
-                            ✨ Auto-filled from your resume. Edit if needed.
+                            {'✨'} Auto-filled from your resume. Edit if needed.
                         </p>
                     )}
                 </div>
 
                 {/* Match Threshold Slider */}
-                <div style={{
-                    padding: '14px 16px',
-                    borderRadius: '12px',
-                    background: 'rgba(255, 255, 255, 0.02)',
-                    border: '1px solid var(--border-color)'
-                }}>
+                <div style={{ padding: '14px 16px', borderRadius: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
                             <SlidersHorizontal size={16} color="var(--primary-cyan)" />
                             Match Threshold
                         </label>
-                        <span style={{
-                            fontSize: '0.85rem',
-                            fontWeight: 600,
-                            color: matchThreshold >= 80 ? 'var(--success)' : matchThreshold >= 60 ? 'var(--warning)' : 'var(--danger)',
-                            background: matchThreshold >= 80
-                                ? 'rgba(16, 185, 129, 0.1)'
-                                : matchThreshold >= 60
-                                    ? 'rgba(245, 158, 11, 0.1)'
-                                    : 'rgba(239, 68, 68, 0.1)',
-                            padding: '3px 10px',
-                            borderRadius: '12px'
-                        }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: matchThreshold >= 80 ? 'var(--success)' : matchThreshold >= 60 ? 'var(--warning)' : 'var(--danger)', background: matchThreshold >= 80 ? 'rgba(16, 185, 129, 0.1)' : matchThreshold >= 60 ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)', padding: '3px 10px', borderRadius: '12px' }}>
                             {matchThreshold}%
                         </span>
                     </div>
-                    <input
-                        type="range"
-                        min="50"
-                        max="100"
-                        step="5"
-                        value={matchThreshold}
-                        onChange={(e) => setMatchThreshold(Number(e.target.value))}
-                        disabled={isApplying}
-                        style={{
-                            width: '100%',
-                            accentColor: 'var(--primary-cyan)',
-                            height: '6px',
-                            cursor: 'pointer'
-                        }}
-                    />
+                    <input type="range" min="50" max="100" step="5" value={matchThreshold} onChange={(e) => setMatchThreshold(Number(e.target.value))} disabled={isApplying} style={{ width: '100%', accentColor: 'var(--primary-cyan)', height: '6px', cursor: 'pointer' }} />
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>50%</span>
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                            Apply if match ≥ {matchThreshold}%
-                        </span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Apply if match {'≥'} {matchThreshold}%</span>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>100%</span>
-                    </div>
-                </div>
-
-                {/* Naukri Credentials */}
-                <div style={{
-                    padding: '16px',
-                    borderRadius: '12px',
-                    background: 'rgba(6, 182, 212, 0.05)',
-                    border: '1px solid rgba(6, 182, 212, 0.15)'
-                }}>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--primary-cyan)', marginBottom: '12px', fontWeight: 500 }}>
-                        🔐 Naukri.com Login Credentials
-                    </p>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Email *</label>
-                            <div style={{ position: 'relative' }}>
-                                <Mail size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-                                <input
-                                    type="email"
-                                    name="naukriEmail"
-                                    className="input-field"
-                                    placeholder="your@email.com"
-                                    value={preferences.naukriEmail}
-                                    onChange={handleChange}
-                                    style={{ paddingLeft: '36px', fontSize: '0.9rem' }}
-                                    disabled={isApplying}
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Password *</label>
-                            <div style={{ position: 'relative' }}>
-                                <Lock size={16} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-                                <input
-                                    type="password"
-                                    name="naukriPassword"
-                                    className="input-field"
-                                    placeholder="••••••••"
-                                    value={preferences.naukriPassword}
-                                    onChange={handleChange}
-                                    style={{ paddingLeft: '36px', fontSize: '0.9rem' }}
-                                    disabled={isApplying}
-                                    required
-                                />
-                            </div>
-                        </div>
                     </div>
                 </div>
 
                 {/* Error Message */}
                 {error && (
-                    <p style={{ color: 'var(--danger)', fontSize: '0.85rem', padding: '8px 12px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px' }}>
-                        {error}
-                    </p>
+                    <p style={{ color: 'var(--danger)', fontSize: '0.85rem', padding: '8px 12px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '8px' }}>{error}</p>
                 )}
 
                 {/* Submit Button */}
-                <button
-                    type="submit"
-                    className="btn-primary"
-                    style={{ marginTop: '8px', width: '100%', padding: '14px' }}
-                    disabled={isApplying || !preferences.role || !preferences.location || !preferences.naukriEmail || !preferences.naukriPassword}
-                >
+                <button type="submit" className="btn-primary" style={{ marginTop: '8px', width: '100%', padding: '14px' }} disabled={isApplying || !preferences.role || !preferences.location || connectionStatus !== 'connected'}>
                     {isApplying ? (
-                        <>
-                            <Loader2 size={20} className="animate-spin" />
-                            Agent Working... (may take 5-7 min)
-                        </>
+                        <><Loader2 size={20} className="animate-spin" /> Agent Working... (may take 5-7 min)</>
+                    ) : connectionStatus !== 'connected' ? (
+                        '🔒 Connect Naukri First'
                     ) : (
                         'Start Autonomous Applying'
                     )}
                 </button>
 
-                {/* Loading hint */}
                 {isApplying && (
-                    <div style={{
-                        textAlign: 'center',
-                        padding: '12px',
-                        borderRadius: '8px',
-                        background: 'rgba(6, 182, 212, 0.08)',
-                        border: '1px solid rgba(6, 182, 212, 0.15)',
-                        fontSize: '0.85rem',
-                        color: 'var(--text-muted)'
-                    }}>
-                        <p>🤖 The AI agent is browsing Naukri.com, searching for jobs, and applying on your behalf.</p>
+                    <div style={{ textAlign: 'center', padding: '12px', borderRadius: '8px', background: 'rgba(6, 182, 212, 0.08)', border: '1px solid rgba(6, 182, 212, 0.15)', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                        <p>{'🤖'} The AI agent is browsing Naukri.com using your saved session, searching for jobs, and applying on your behalf.</p>
                         <p style={{ marginTop: '4px', color: 'var(--primary-cyan)' }}>Please wait — this usually takes 5-7 minutes.</p>
                     </div>
                 )}

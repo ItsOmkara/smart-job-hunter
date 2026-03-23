@@ -1,0 +1,12 @@
+# Copy this file to application.properties and fill in your keys
+# cp application.properties.example application.properties
+
+spring.data.mongodb.uri=mongodb://localhost:27017/jobhunter
+spring.data.mongodb.database=jobhunter
+
+# Get your TinyFish API key from https://agent.tinyfish.ai
+tinyfish.api.key=YOUR_TINYFISH_API_KEY_HERE
+tinyfish.api.url=https://agent.tinyfish.ai/v1/automation/run-sse
+
+# Get your Groq API key from https://console.groq.com
+groq.api.key=YOUR_GROQ_API_KEY_HERE

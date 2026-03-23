@@ -22,6 +22,7 @@ function App() {
   const [extractedSkills, setExtractedSkills] = useState([])
   const [parsedProfile, setParsedProfile] = useState(null)
   const [logs, setLogs] = useState([])
+  const [isNaukriConnected, setIsNaukriConnected] = useState(false)
 
   const handleParseStart = () => {
     setAppState('parsing')
@@ -38,10 +39,8 @@ function App() {
     setAppState('ready_to_apply')
   }
 
-  // Direct apply — skips login, goes straight to job search & apply
   const handleStartApplying = async (preferences) => {
     setAppState('applying')
-
     try {
       const response = await fetch(`${API_BASE}/api/agent/start`, {
         method: 'POST',
@@ -51,20 +50,21 @@ function App() {
           location: preferences.location,
           experience: preferences.experience,
           skills: preferences.skills,
-          naukriEmail: preferences.naukriEmail,
-          naukriPassword: preferences.naukriPassword,
           dailyLimit: preferences.dailyLimit,
           matchThreshold: preferences.matchThreshold
         })
       })
 
       if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`)
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || `Server error: ${response.status}`)
       }
 
       const data = await response.json()
-
-      // data is List<ApplicationLog> from Spring Boot
+      const sessionExpired = data.some(log => log.status === 'Session Expired')
+      if (sessionExpired) {
+        setIsNaukriConnected(false)
+      }
       setLogs(prev => [...data, ...prev])
       setAppState('completed')
     } catch (err) {
@@ -74,9 +74,12 @@ function App() {
     }
   }
 
+  const handleConnectionChange = (connected) => {
+    setIsNaukriConnected(connected)
+  }
+
   return (
     <div className="app-container">
-      {/* Sidebar */}
       <aside className="sidebar">
         <div className="logo-container">
           <div className="logo-icon">
@@ -86,31 +89,18 @@ function App() {
         </div>
 
         <nav className="nav-links">
-          <a
-            href="#"
-            className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
-            onClick={(e) => { e.preventDefault(); setActiveTab('dashboard') }}
-          >
+          <a href="#" className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setActiveTab('dashboard') }}>
             <LayoutDashboard size={20} /> Dashboard
           </a>
-          <a
-            href="#"
-            className={`nav-item ${activeTab === 'resumes' ? 'active' : ''}`}
-            onClick={(e) => { e.preventDefault(); setActiveTab('resumes') }}
-          >
+          <a href="#" className={`nav-item ${activeTab === 'resumes' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setActiveTab('resumes') }}>
             <FileText size={20} /> Resumes
           </a>
-          <a
-            href="#"
-            className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
-            onClick={(e) => { e.preventDefault(); setActiveTab('settings') }}
-          >
+          <a href="#" className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setActiveTab('settings') }}>
             <Settings size={20} /> Settings
           </a>
         </nav>
       </aside>
 
-      {/* Main Content */}
       <main className="main-content">
         <header className="header">
           <div className="header-title">
@@ -123,7 +113,6 @@ function App() {
           </div>
         </header>
 
-        {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
           <div className="dashboard-grid">
             <div className="left-column">
@@ -139,6 +128,8 @@ function App() {
                   onStartApplying={handleStartApplying}
                   isApplying={appState === 'applying'}
                   autoFilledSkills={extractedSkills}
+                  isConnected={isNaukriConnected}
+                  onConnectionChange={handleConnectionChange}
                 />
               )}
             </div>
@@ -149,7 +140,6 @@ function App() {
           </div>
         )}
 
-        {/* Resumes Tab (placeholder) */}
         {activeTab === 'resumes' && (
           <div className="glass-panel" style={{ padding: '40px', textAlign: 'center' }}>
             <FileText size={48} color="var(--text-muted)" style={{ marginBottom: '16px' }} />
@@ -158,7 +148,6 @@ function App() {
           </div>
         )}
 
-        {/* Settings Tab */}
         {activeTab === 'settings' && (
           <div style={{ maxWidth: '600px' }}>
             <SettingsPanel />
