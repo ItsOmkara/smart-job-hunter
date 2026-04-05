@@ -29,9 +29,13 @@ dist/
 **/application-*.properties
 **/application-*.yml
 
+# Browser data - Contains persistent Chromium profile with cookies
+browser-data/
+debug-screenshots/
+
+# Playwright scripts node_modules (separate from frontend)
+job-hunter/scripts/node_modules/
+
 # Logs
 *.log
 logs/
-
-# Maven wrapper (optional, some prefer to track these)
-# .mvn/wrapper/maven-wrapper.jar

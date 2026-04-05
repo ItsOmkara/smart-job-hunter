@@ -5,7 +5,7 @@ import com.omkar.jobhunter.model.ApplicationLog;
 import com.omkar.jobhunter.model.UserSession;
 import com.omkar.jobhunter.repository.ApplicationLogRepository;
 import com.omkar.jobhunter.repository.UserSessionRepository;
-import com.omkar.jobhunter.service.TinyFishService;
+import com.omkar.jobhunter.service.PlaywrightService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -21,21 +21,22 @@ public class AgentController {
 
     private static final Logger log = LoggerFactory.getLogger(AgentController.class);
 
-    private final TinyFishService tinyFishService;
+    private final PlaywrightService playwrightService;
     private final ApplicationLogRepository applicationLogRepository;
     private final UserSessionRepository userSessionRepository;
 
-    public AgentController(TinyFishService tinyFishService,
+    public AgentController(PlaywrightService playwrightService,
             ApplicationLogRepository applicationLogRepository,
             UserSessionRepository userSessionRepository) {
-        this.tinyFishService = tinyFishService;
+        this.playwrightService = playwrightService;
         this.applicationLogRepository = applicationLogRepository;
         this.userSessionRepository = userSessionRepository;
     }
 
     /**
-     * Session-based apply: loads stored session, then navigates to job search and
-     * applies.
+     * POST /api/agent/start
+     * Session-based apply: loads stored session file path, runs Playwright apply
+     * script.
      * Requires an active Naukri session (use POST /api/session/connect/naukri
      * first).
      */
@@ -54,10 +55,12 @@ public class AgentController {
         }
 
         UserSession session = sessionOpt.get();
-        log.info("Using Naukri session: id={}, savedAt={}", session.getId(), session.getSavedAt());
+        log.info("Using Naukri session: id={}, savedAt={}, path={}", session.getId(), session.getSavedAt(),
+                session.getStorageState());
 
         try {
-            List<ApplicationLog> results = tinyFishService.runSessionApply(request, session.getStorageState());
+            // storageState now contains the FILE PATH, not the JSON blob
+            List<ApplicationLog> results = playwrightService.runSessionApply(request, session.getStorageState());
 
             // Check if session expired during run
             boolean sessionExpired = results.stream()
@@ -77,5 +80,18 @@ public class AgentController {
             return ResponseEntity.internalServerError()
                     .body(Map.of("error", e.getMessage()));
         }
+    }
+
+    /**
+     * DELETE /api/agent/logs
+     * Clear all application logs from the database.
+     * Use before re-running the agent to start with a fresh log view.
+     */
+    @DeleteMapping("/logs")
+    public ResponseEntity<?> clearLogs() {
+        long count = applicationLogRepository.count();
+        applicationLogRepository.deleteAll();
+        log.info("Cleared {} application log(s) from database.", count);
+        return ResponseEntity.ok(Map.of("cleared", count));
     }
 }

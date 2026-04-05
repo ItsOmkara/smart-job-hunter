@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Search, MapPin, Briefcase, Code, Loader2, SlidersHorizontal, Plug, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
+import { Search, MapPin, Briefcase, Code, Loader2, SlidersHorizontal, Plug, CheckCircle, XCircle, RefreshCw, Monitor } from 'lucide-react'
 
 const API_BASE = 'http://localhost:8080'
 
@@ -12,24 +12,18 @@ export default function JobPreferences({ onStartApplying, isApplying, autoFilled
     })
     const [matchThreshold, setMatchThreshold] = useState(() => {
         const stored = localStorage.getItem('matchThreshold')
-        return stored ? Number(stored) : 60
+        return stored ? Number(stored) : 25
     })
     const [error, setError] = useState('')
     const [connectionStatus, setConnectionStatus] = useState('checking')
     const [sessionSavedAt, setSessionSavedAt] = useState(null)
-    const [streamUrl, setStreamUrl] = useState('')
 
     useEffect(() => {
         checkSessionStatus()
+        // Sync settings from localStorage (picks up changes from SettingsPanel)
+        const storedThreshold = localStorage.getItem('matchThreshold')
+        if (storedThreshold) setMatchThreshold(Number(storedThreshold))
     }, [])
-
-    useEffect(() => {
-        let interval;
-        if (connectionStatus === 'connecting') {
-            interval = setInterval(checkSessionStatus, 5000)
-        }
-        return () => clearInterval(interval)
-    }, [connectionStatus])
 
     useEffect(() => {
         if (autoFilledSkills && autoFilledSkills.length > 0 && !preferences.skills) {
@@ -44,7 +38,6 @@ export default function JobPreferences({ onStartApplying, isApplying, autoFilled
             if (data.connected) {
                 setConnectionStatus('connected')
                 setSessionSavedAt(data.savedAt)
-                setStreamUrl('')
                 onConnectionChange?.(true)
             } else if (connectionStatus !== 'connecting') {
                 setConnectionStatus('disconnected')
@@ -62,31 +55,21 @@ export default function JobPreferences({ onStartApplying, isApplying, autoFilled
     const handleConnectNaukri = async () => {
         setConnectionStatus('connecting')
         setError('')
-        setStreamUrl('')
         try {
+            // Backend blocks until login completes (Playwright opens local browser)
             const response = await fetch(`${API_BASE}/api/session/connect/naukri`, { method: 'POST' })
             const data = await response.json()
-            if (data.status === 'connecting') {
-                setStreamUrl(data.streamUrl)
-                // Window might not open automatically due to popup blockers, so we provide a link
-                if (data.streamUrl) {
-                    window.open(data.streamUrl, '_blank')
-                }
+
+            if (data.status === 'connected') {
+                setConnectionStatus('connected')
+                setSessionSavedAt(new Date().toISOString())
+                onConnectionChange?.(true)
             } else {
                 setConnectionStatus('disconnected')
-                // Build contextual error message based on errorType
                 const errorType = data.errorType || 'UNKNOWN'
                 let errorMsg = data.message || 'Failed to connect. Please try again.'
-                if (errorType === 'CREDITS') {
-                    errorMsg = '⚠️ No TinyFish credits remaining. Please top up at agent.tinyfish.ai and try again.'
-                } else if (errorType === 'AUTH') {
-                    errorMsg = '🔑 API key invalid or expired. Update the key in application.properties and restart the backend.'
-                } else if (errorType === 'RATE_LIMIT') {
-                    errorMsg = '⏳ Rate limited by TinyFish. Please wait 30 seconds and try again.'
-                } else if (errorType === 'TIMEOUT') {
-                    errorMsg = '⏱️ TinyFish did not respond. Check your internet connection and TinyFish service status.'
-                } else if (errorType === 'SERVER_ERROR') {
-                    errorMsg = '🔧 TinyFish service is down. Please try again later.'
+                if (errorType === 'TIMEOUT') {
+                    errorMsg = '⏱️ Login timed out. Please try again and complete login within 5 minutes.'
                 }
                 setError(errorMsg)
                 onConnectionChange?.(false)
@@ -117,8 +100,14 @@ export default function JobPreferences({ onStartApplying, isApplying, autoFilled
         }
         setError('')
         try {
-            const dailyLimit = localStorage.getItem('dailyLimit') || 5
-            await onStartApplying({ ...preferences, matchThreshold, dailyLimit: Number(dailyLimit) })
+            // Always read BOTH settings from localStorage at submit time
+            // so they reflect whatever the user last saved in Settings
+            const storedLimit = localStorage.getItem('dailyLimit')
+            const storedThreshold = localStorage.getItem('matchThreshold')
+            const finalDailyLimit = storedLimit ? Number(storedLimit) : 5
+            const finalThreshold = storedThreshold ? Number(storedThreshold) : matchThreshold
+            console.log(`[JobPreferences] Submitting with dailyLimit=${finalDailyLimit}, matchThreshold=${finalThreshold}`)
+            await onStartApplying({ ...preferences, matchThreshold: finalThreshold, dailyLimit: finalDailyLimit })
         } catch (err) {
             setError(err.message || 'Something went wrong. Please try again.')
             checkSessionStatus()
@@ -132,7 +121,7 @@ export default function JobPreferences({ onStartApplying, isApplying, autoFilled
             case 'connecting':
                 return {
                     icon: <Loader2 size={18} className="animate-spin" />,
-                    text: 'Connecting... Please login in the browser.',
+                    text: 'Browser opened — please login in the Chromium window.',
                     color: 'var(--primary-cyan)',
                     bgColor: 'rgba(6, 182, 212, 0.08)',
                     borderColor: 'rgba(6, 182, 212, 0.2)'
@@ -183,18 +172,15 @@ export default function JobPreferences({ onStartApplying, isApplying, autoFilled
 
                     {connectionStatus === 'connecting' && (
                         <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(6, 182, 212, 0.05)', border: '1px solid rgba(6, 182, 212, 0.1)', fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                            <p>{'🖥️'} A browser window should have opened automatically.</p>
-                            {streamUrl && (
-                                <a href={streamUrl} target="_blank" rel="noopener noreferrer"
-                                    style={{ display: 'inline-block', marginTop: '8px', color: 'var(--primary-cyan)', textDecoration: 'underline', fontWeight: 600 }}>
-                                    Click here to open Browser and Login
-                                </a>
-                            )}
-                            <p style={{ marginTop: '8px' }}>1. Enter your Naukri credentials</p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                <Monitor size={16} color="var(--primary-cyan)" />
+                                <span style={{ fontWeight: 600, color: 'var(--primary-cyan)' }}>A Chromium window opened on your machine.</span>
+                            </div>
+                            <p style={{ marginTop: '4px' }}>1. Enter your Naukri credentials in the browser</p>
                             <p>2. Complete OTP/CAPTCHA if prompted</p>
-                            <p>3. Wait until you see your dashboard</p>
-                            <p style={{ marginTop: '6px', color: 'var(--primary-cyan)', fontWeight: 500 }}>
-                                {'⏱'} Waiting for login capture...
+                            <p>3. Once you reach the dashboard, the session will be captured automatically</p>
+                            <p style={{ marginTop: '8px', color: 'var(--primary-cyan)', fontWeight: 500 }}>
+                                {'⏳'} Waiting for you to complete login...
                             </p>
                         </div>
                     )}
@@ -212,11 +198,14 @@ export default function JobPreferences({ onStartApplying, isApplying, autoFilled
                 {/* Location + Experience */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <div>
-                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Location *</label>
+                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Location(s) *</label>
                         <div style={{ position: 'relative' }}>
                             <MapPin size={18} color="var(--text-muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-                            <input type="text" name="location" className="input-field" placeholder="e.g. Remote, India" value={preferences.location} onChange={handleChange} style={{ paddingLeft: '40px' }} disabled={isApplying} required />
+                            <input type="text" name="location" className="input-field" placeholder="e.g. Pune, Bangalore, Remote" value={preferences.location} onChange={handleChange} style={{ paddingLeft: '40px' }} disabled={isApplying} required />
                         </div>
+                        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px', opacity: 0.8 }}>
+                            {'💡'} Separation multiple cities with commas. Agent will search each one.
+                        </p>
                     </div>
                     <div>
                         <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Experience</label>
@@ -256,9 +245,9 @@ export default function JobPreferences({ onStartApplying, isApplying, autoFilled
                             {matchThreshold}%
                         </span>
                     </div>
-                    <input type="range" min="50" max="100" step="5" value={matchThreshold} onChange={(e) => setMatchThreshold(Number(e.target.value))} disabled={isApplying} style={{ width: '100%', accentColor: 'var(--primary-cyan)', height: '6px', cursor: 'pointer' }} />
+                    <input type="range" min="20" max="100" step="5" value={matchThreshold} onChange={(e) => setMatchThreshold(Number(e.target.value))} disabled={isApplying} style={{ width: '100%', accentColor: 'var(--primary-cyan)', height: '6px', cursor: 'pointer' }} />
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>50%</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>20%</span>
                         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Apply if match {'≥'} {matchThreshold}%</span>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>100%</span>
                     </div>

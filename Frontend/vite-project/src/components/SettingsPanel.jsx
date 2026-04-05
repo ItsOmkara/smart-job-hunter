@@ -152,7 +152,7 @@ export default function SettingsPanel() {
                 </div>
                 <input
                     type="range"
-                    min="50"
+                    min="20"
                     max="100"
                     step="5"
                     value={matchThreshold}
@@ -165,7 +165,7 @@ export default function SettingsPanel() {
                     }}
                 />
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>50%</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>20%</span>
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                         Apply if match ≥ {matchThreshold}%
                     </span>

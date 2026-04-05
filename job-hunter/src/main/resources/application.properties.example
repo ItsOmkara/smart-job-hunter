@@ -4,9 +4,9 @@
 spring.data.mongodb.uri=mongodb://localhost:27017/jobhunter
 spring.data.mongodb.database=jobhunter
 
-# Get your TinyFish API key from https://agent.tinyfish.ai
-tinyfish.api.key=YOUR_TINYFISH_API_KEY_HERE
-tinyfish.api.url=https://agent.tinyfish.ai/v1/automation/run-sse
+# Playwright config (no API keys needed!)
+playwright.scripts.dir=scripts
+playwright.browser.datadir=browser-data
 
-# Get your Groq API key from https://console.groq.com
+# Get your Groq API key from https://console.groq.com (for resume parsing)
 groq.api.key=YOUR_GROQ_API_KEY_HERE

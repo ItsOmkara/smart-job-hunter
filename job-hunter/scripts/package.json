@@ -1,0 +1,13 @@
+{
+    "name": "smart-job-hunter-scripts",
+    "version": "1.0.0",
+    "description": "Playwright automation scripts for Smart Job Hunter",
+    "scripts": {
+        "login": "node login.js",
+        "apply": "node apply.js",
+        "install-browsers": "npx playwright install chromium"
+    },
+    "dependencies": {
+        "playwright": "^1.50.0"
+    }
+}

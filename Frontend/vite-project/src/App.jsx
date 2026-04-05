@@ -42,17 +42,19 @@ function App() {
   const handleStartApplying = async (preferences) => {
     setAppState('applying')
     try {
+      const requestBody = {
+        role: preferences.role,
+        location: preferences.location,
+        experience: preferences.experience,
+        skills: preferences.skills,
+        dailyLimit: preferences.dailyLimit,
+        matchThreshold: preferences.matchThreshold
+      }
+      console.log('[App] Sending to backend:', JSON.stringify(requestBody))
       const response = await fetch(`${API_BASE}/api/agent/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          role: preferences.role,
-          location: preferences.location,
-          experience: preferences.experience,
-          skills: preferences.skills,
-          dailyLimit: preferences.dailyLimit,
-          matchThreshold: preferences.matchThreshold
-        })
+        body: JSON.stringify(requestBody)
       })
 
       if (!response.ok) {
