@@ -5,6 +5,7 @@
     "scripts": {
         "login": "node login.js",
         "apply": "node apply.js",
+        "agent": "node agent.js",
         "install-browsers": "npx playwright install chromium"
     },
     "dependencies": {

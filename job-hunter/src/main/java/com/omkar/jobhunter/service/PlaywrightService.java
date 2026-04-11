@@ -36,6 +36,12 @@ public class PlaywrightService {
     @Value("${playwright.browser.datadir:browser-data}")
     private String browserDataDir;
 
+    @Value("${groq.api.key:}")
+    private String groqApiKey;
+
+    @Value("${groq.model:meta-llama/llama-4-scout-17b-16e-instruct}")
+    private String groqModel;
+
     private Path scriptsPath;
     private Path userDataPath;
 
@@ -120,9 +126,9 @@ public class PlaywrightService {
      * No need to pass storageState — both scripts share userDataDir.
      */
     public List<ApplicationLog> runSessionApply(AgentRequest request, String userDataDir) {
-        log.info("Starting apply via Playwright for role={}, location={}", request.getRole(), request.getLocation());
+        log.info("Starting LLM-driven agent for role={}, location={}", request.getRole(), request.getLocation());
 
-        String scriptPath = scriptsPath.resolve("apply.js").toString();
+        String scriptPath = scriptsPath.resolve("agent.js").toString();
 
         try {
             String output = runNodeScript(scriptPath,
@@ -132,6 +138,8 @@ public class PlaywrightService {
                     "--skills", request.getSkills() != null ? request.getSkills() : "",
                     "--dailyLimit", String.valueOf(request.getDailyLimit()),
                     "--matchThreshold", String.valueOf(request.getMatchThreshold()),
+                    "--groqApiKey", groqApiKey,
+                    "--groqModel", groqModel,
                     "--userDataDir", userDataDir);
 
             log.info("apply.js output: {}", output);
@@ -225,10 +233,10 @@ public class PlaywrightService {
         }
 
         // Wait for process to finish (5 min hard limit)
-        boolean finished = process.waitFor(5, TimeUnit.MINUTES);
+        boolean finished = process.waitFor(15, TimeUnit.MINUTES);
         if (!finished) {
             process.destroyForcibly();
-            throw new RuntimeException("Node script timed out after 5 minutes");
+            throw new RuntimeException("Node script timed out after 15 minutes");
         }
 
         // Wait for stderr thread to finish draining
