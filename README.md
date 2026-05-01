@@ -358,12 +358,6 @@ The agent combines two strategies:
 
 ---
 
-## 📄 License
-
-This project is open source and available under the [MIT License](LICENSE).
-
----
-
 <p align="center">
   Built with ❤️ by <a href="https://github.com/ItsOmkara">Omkar</a>
 </p>
